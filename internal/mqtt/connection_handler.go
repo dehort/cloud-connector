@@ -128,7 +128,8 @@ func controlMessageHandler(connectionRegistrar controller.ConnectionRegistrar, a
 			return
 		}
 
-		var controlMsg ControlMessage
+		var msg json.RawMessage
+		controlMsg := ControlMessage{Content: &msg}
 
 		if err := json.Unmarshal(message.Payload(), &controlMsg); err != nil {
 			logger.WithFields(logrus.Fields{"error": err}).Error("Failed to unmarshal control message")
@@ -139,6 +140,12 @@ func controlMessageHandler(connectionRegistrar controller.ConnectionRegistrar, a
 
 		switch controlMsg.MessageType {
 		case "connection-status":
+			var connStatusContent ConnectionStatusMessageContent
+			if err := json.Unmarshal(msg, &connStatusContent); err != nil {
+				logger.WithFields(logrus.Fields{"error": err}).Error("Failed to unmarshal control message content")
+				return
+			}
+			controlMsg.Content = &connStatusContent
 			handleConnectionStatusMessage(client, clientID, controlMsg, connectionRegistrar, accountResolver, connectedClientRecorder)
 		case "event":
 			handleEventMessage(client, clientID, controlMsg)
@@ -163,54 +170,43 @@ func handleConnectionStatusMessage(client MQTT.Client, clientID domain.ClientID,
 
 	logger = logger.WithFields(logrus.Fields{"account": account})
 
-	handshakePayload := msg.Content.(map[string]interface{})
+	var connStatusContent *ConnectionStatusMessageContent
+	connStatusContent = msg.Content.(*ConnectionStatusMessageContent)
 
-	connectionState, gotConnectionState := handshakePayload["state"]
-
-	if gotConnectionState == false {
-		// FIXME: Close down the connection
-		return errors.New("Invalid connection state")
-	}
-
-	if connectionState == "online" {
-		return handleOnlineMessage(client, account, clientID, msg, connectionRegistrar, connectedClientRecorder)
-	} else if connectionState == "offline" {
+	switch connStatusContent.ConnectionState {
+	case "online":
+		return handleOnlineMessage(client, account, clientID, *connStatusContent, connectionRegistrar, connectedClientRecorder)
+	case "offline":
 		return handleOfflineMessage(client, account, clientID, msg, connectionRegistrar)
-	} else {
+	default:
 		return errors.New("Invalid connection state")
 	}
 
 	return nil
 }
 
-func handleOnlineMessage(client MQTT.Client, account domain.AccountID, clientID domain.ClientID, msg ControlMessage, connectionRegistrar controller.ConnectionRegistrar, connectedClientRecorder controller.ConnectedClientRecorder) error {
+func handleOnlineMessage(client MQTT.Client, account domain.AccountID, clientID domain.ClientID, content ConnectionStatusMessageContent, connectionRegistrar controller.ConnectionRegistrar, connectedClientRecorder controller.ConnectedClientRecorder) error {
 
 	// FIXME: pass the logger around
 	logger := logger.Log.WithFields(logrus.Fields{"clientID": clientID, "account": account})
 
 	logger.Debug("handling online connection-status message")
 
-	handshakePayload := msg.Content.(map[string]interface{}) // FIXME:
+	/*
+		err := connectedClientRecorder.RecordConnectedClient(context.Background(), account, clientID, canonicalFacts)
+		if err != nil {
+			// FIXME:  If we cannot "register" the connection with inventory, then send a disconnect message
+			return err
+		}
 
-	canonicalFacts, gotCanonicalFacts := handshakePayload["canonical_facts"]
-
-	if gotCanonicalFacts == false {
-		fmt.Println("FIXME: error!  hangup")
-		return errors.New("Invalid handshake")
-	}
-
-	err := connectedClientRecorder.RecordConnectedClient(context.Background(), account, clientID, canonicalFacts)
-	if err != nil {
-		// FIXME:  If we cannot "register" the connection with inventory, then send a disconnect message
-		return err
-	}
-
-	connectionEvent(account, clientID, msg.Content)
-
+		connectionEvent(account, clientID, msg.Content)
+	*/
 	proxy := ReceptorMQTTProxy{ClientID: string(clientID), Client: client}
 
 	connectionRegistrar.Register(context.Background(), string(account), string(clientID), &proxy)
 	// FIXME: check for error, but ignore duplicate registration errors
+
+	handleOnlineDispatchers(account, clientID, content.Dispatchers)
 
 	return nil
 }
@@ -246,6 +242,11 @@ func verifyTopic(topic string) (domain.ClientID, error) {
 	}
 
 	return domain.ClientID(items[2]), nil
+}
+
+func handleOnlineDispatchers(account domain.AccountID, clientID domain.ClientID, dispatchers Dispatchers) error {
+	fmt.Println("inside handleOnlineDispatchers:", dispatchers)
+	return nil
 }
 
 func registerConnectionInSources(account domain.AccountID, clientID domain.ClientID, catalogServiceFacts interface{}) error {
