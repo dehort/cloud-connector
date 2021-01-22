@@ -158,7 +158,7 @@ func controlMessageHandler(connectionRegistrar controller.ConnectionRegistrar, a
 func handleConnectionStatusMessage(client MQTT.Client, clientID domain.ClientID, msg ControlMessage, connectionRegistrar controller.ConnectionRegistrar, accountResolver controller.AccountIdResolver, connectedClientRecorder controller.ConnectedClientRecorder) error {
 
 	// FIXME: pass the logger around
-	logger := logger.Log.WithFields(logrus.Fields{"clientID": clientID})
+	logger := logger.Log.WithFields(logrus.Fields{"client_id": clientID})
 
 	logger.Debug("handling connection status control message")
 
@@ -188,19 +188,16 @@ func handleConnectionStatusMessage(client MQTT.Client, clientID domain.ClientID,
 func handleOnlineMessage(client MQTT.Client, account domain.AccountID, clientID domain.ClientID, content ConnectionStatusMessageContent, connectionRegistrar controller.ConnectionRegistrar, connectedClientRecorder controller.ConnectedClientRecorder) error {
 
 	// FIXME: pass the logger around
-	logger := logger.Log.WithFields(logrus.Fields{"clientID": clientID, "account": account})
+	logger := logger.Log.WithFields(logrus.Fields{"client_id": clientID, "account": account})
 
 	logger.Debug("handling online connection-status message")
 
-	/*
-		err := connectedClientRecorder.RecordConnectedClient(context.Background(), account, clientID, canonicalFacts)
-		if err != nil {
-			// FIXME:  If we cannot "register" the connection with inventory, then send a disconnect message
-			return err
-		}
+	err := connectedClientRecorder.RecordConnectedClient(context.Background(), account, clientID, content.CanonicalFacts)
+	if err != nil {
+		// FIXME:  If we cannot "register" the connection with inventory, then send a disconnect message
+		return err
+	}
 
-		connectionEvent(account, clientID, msg.Content)
-	*/
 	proxy := ReceptorMQTTProxy{ClientID: string(clientID), Client: client}
 
 	connectionRegistrar.Register(context.Background(), string(account), string(clientID), &proxy)
@@ -214,13 +211,11 @@ func handleOnlineMessage(client MQTT.Client, account domain.AccountID, clientID 
 func handleOfflineMessage(client MQTT.Client, account domain.AccountID, clientID domain.ClientID, msg ControlMessage, connectionRegistrar controller.ConnectionRegistrar) error {
 
 	// FIXME: pass the logger around
-	logger := logger.Log.WithFields(logrus.Fields{"clientID": clientID, "account": account})
+	logger := logger.Log.WithFields(logrus.Fields{"client_id": clientID, "account": account})
 
 	logger.Debug("handling offline connection-status message")
 
 	connectionRegistrar.Unregister(context.Background(), string(account), string(clientID))
-
-	disconnectionEvent(account, clientID)
 
 	logger.Debug("Removing client's retained connection-status message")
 	// FIXME:
@@ -257,12 +252,4 @@ func registerConnectionInSources(account domain.AccountID, clientID domain.Clien
 func handleEventMessage(client MQTT.Client, clientID domain.ClientID, msg ControlMessage) error {
 	fmt.Printf("FIXME: Got an event: %+v\n", msg.Content)
 	return nil
-}
-
-func connectionEvent(account domain.AccountID, clientID domain.ClientID, canonicalFacts interface{}) {
-	fmt.Println("FIXME: send new connection kafka message")
-}
-
-func disconnectionEvent(account domain.AccountID, clientID domain.ClientID) {
-	fmt.Println("FIXME: send lost connection kafka message")
 }

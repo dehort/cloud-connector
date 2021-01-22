@@ -2,9 +2,11 @@ package controller
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/RedHatInsights/cloud-connector/internal/domain"
+	"github.com/RedHatInsights/cloud-connector/internal/platform/logger"
+
+	"github.com/sirupsen/logrus"
 )
 
 type ConnectedClientRecorder interface {
@@ -15,6 +17,7 @@ type InventoryBasedConnectedClientRecorder struct {
 }
 
 func (ibccr *InventoryBasedConnectedClientRecorder) RecordConnectedClient(ctx context.Context, account domain.AccountID, clientID domain.ClientID, canonicalFacts interface{}) error {
-	fmt.Println("FIXME: send inventory kafka message - ", account, clientID, canonicalFacts)
+	logger := logger.Log.WithFields(logrus.Fields{"account": account, "client_id": clientID})
+	logger.Debug("send inventory kafka message - ", account, clientID, canonicalFacts)
 	return nil
 }
