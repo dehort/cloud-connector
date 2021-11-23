@@ -6,65 +6,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/RedHatInsights/cloud-connector/internal/config"
 	"github.com/RedHatInsights/cloud-connector/internal/domain"
-	"github.com/RedHatInsights/cloud-connector/internal/platform/db"
 	"github.com/RedHatInsights/cloud-connector/internal/platform/logger"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 )
 
 type SqlConnectionRegistrar struct {
 	database *sql.DB
-	metrics  *sqlConnectionRegistrarMetrics
 }
 
-type sqlConnectionRegistrarMetrics struct {
-	sqlConnectionRegistrationDuration     prometheus.Histogram
-	sqlConnectionUnregistrationDuration   prometheus.Histogram
-	sqlConnectionLookupByClientIDDuration prometheus.Histogram
-}
-
-func initializeSqlConnectionRegistrationMetrics() *sqlConnectionRegistrarMetrics {
-	metrics := new(sqlConnectionRegistrarMetrics)
-
-	metrics.sqlConnectionRegistrationDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name: "cloud_connector_sql_register_connection_duration",
-		Help: "The amount of time the it took to register a connection in the db",
-	})
-
-	metrics.sqlConnectionUnregistrationDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name: "cloud_connector_sql_unregister_connection_duration",
-		Help: "The amount of time the it took to unregister a connection in the db",
-	})
-
-	metrics.sqlConnectionLookupByClientIDDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name: "cloud_connector_sql_lookup_connection_by_client_id_duration",
-		Help: "The amount of time the it took to register a connection in the db",
-	})
-
-	return metrics
-}
-
-func NewSqlConnectionRegistrar(cfg *config.Config) (*SqlConnectionRegistrar, error) {
-
-	database, err := db.InitializeDatabaseConnection(cfg)
-	if err != nil {
-		return nil, err
-	}
-
+func NewSqlConnectionRegistrar(cfg *config.Config, database *sql.DB) (*SqlConnectionRegistrar, error) {
 	return &SqlConnectionRegistrar{
 		database: database,
-		metrics:  initializeSqlConnectionRegistrationMetrics(),
 	}, nil
 }
 
 func (scm *SqlConnectionRegistrar) Register(ctx context.Context, rhcClient domain.ConnectorClientState) error {
 
-	callDurationTimer := prometheus.NewTimer(scm.metrics.sqlConnectionRegistrationDuration)
+	callDurationTimer := prometheus.NewTimer(metrics.sqlConnectionRegistrationDuration)
 	defer callDurationTimer.ObserveDuration()
 
 	account := rhcClient.Account
@@ -72,8 +36,13 @@ func (scm *SqlConnectionRegistrar) Register(ctx context.Context, rhcClient domai
 
 	logger := logger.Log.WithFields(logrus.Fields{"account": account, "client_id": client_id})
 
-	update := "UPDATE connections SET dispatchers=$1, tags = $2, updated_at = NOW(), message_id = $3, message_sent = $4 WHERE account=$5 AND client_id=$6"
-	insert := "INSERT INTO connections (account, client_id, dispatchers, canonical_facts, tags, message_id, message_sent) SELECT $7, $8, $9, $10, $11, $12, $13"
+	permittedAccounts, err := retrievePermittedAccounts(logger, rhcClient)
+	if err != nil {
+		logger.WithFields(logrus.Fields{"error": err}).Error("Unable to determine permitted accounts")
+	}
+
+	update := "UPDATE connections SET dispatchers=$1, tags = $2, updated_at = NOW(), message_id = $3, message_sent = $4, permitted_accounts = $5 WHERE account=$6 AND client_id=$7"
+	insert := "INSERT INTO connections (account, client_id, dispatchers, canonical_facts, tags, permitted_accounts, message_id, message_sent) SELECT $8, $9, $10, $11, $12, $13, $14, $15"
 	insertOrUpdate := fmt.Sprintf("WITH upsert AS (%s RETURNING *) %s WHERE NOT EXISTS (SELECT * FROM upsert)", update, insert)
 
 	statement, err := scm.database.Prepare(insertOrUpdate)
@@ -101,7 +70,7 @@ func (scm *SqlConnectionRegistrar) Register(ctx context.Context, rhcClient domai
 		return err
 	}
 
-	_, err = statement.Exec(dispatchersString, tagsString, rhcClient.MessageMetadata.LatestMessageID, rhcClient.MessageMetadata.LatestTimestamp, account, client_id, account, client_id, dispatchersString, canonicalFactsString, tagsString, rhcClient.MessageMetadata.LatestMessageID, rhcClient.MessageMetadata.LatestTimestamp)
+	_, err = statement.Exec(dispatchersString, tagsString, rhcClient.MessageMetadata.LatestMessageID, rhcClient.MessageMetadata.LatestTimestamp, permittedAccounts, account, client_id, account, client_id, dispatchersString, canonicalFactsString, tagsString, permittedAccounts, rhcClient.MessageMetadata.LatestMessageID, rhcClient.MessageMetadata.LatestTimestamp)
 	if err != nil {
 		logger.WithFields(logrus.Fields{"error": err}).Error("Insert/update failed")
 		return FatalError{err}
@@ -113,7 +82,7 @@ func (scm *SqlConnectionRegistrar) Register(ctx context.Context, rhcClient domai
 
 func (scm *SqlConnectionRegistrar) Unregister(ctx context.Context, client_id domain.ClientID) error {
 
-	callDurationTimer := prometheus.NewTimer(scm.metrics.sqlConnectionUnregistrationDuration)
+	callDurationTimer := prometheus.NewTimer(metrics.sqlConnectionUnregistrationDuration)
 	defer callDurationTimer.ObserveDuration()
 
 	logger := logger.Log.WithFields(logrus.Fields{"client_id": client_id})
@@ -141,7 +110,7 @@ func (scm *SqlConnectionRegistrar) FindConnectionByClientID(ctx context.Context,
 
 	logger := logger.Log.WithFields(logrus.Fields{"client_id": client_id})
 
-	callDurationTimer := prometheus.NewTimer(scm.metrics.sqlConnectionLookupByClientIDDuration)
+	callDurationTimer := prometheus.NewTimer(metrics.sqlConnectionLookupByClientIDDuration)
 	defer callDurationTimer.ObserveDuration()
 
 	statement, err := scm.database.Prepare("SELECT account, client_id, dispatchers, canonical_facts, tags, message_id, message_sent FROM connections WHERE client_id = $1")
@@ -207,4 +176,44 @@ func (scm *SqlConnectionRegistrar) FindConnectionByClientID(ctx context.Context,
 	}
 
 	return connectorClient, nil
+}
+
+func retrievePermittedAccounts(logger *logrus.Entry, clientState domain.ConnectorClientState) (string, error) {
+
+	emptyPermittedAccounts := "[]"
+
+	if clientState.Dispatchers == nil {
+		logger.Debug("No permitted accounts found")
+		return emptyPermittedAccounts, nil
+	}
+
+	dispatchersMap := clientState.Dispatchers.(map[string]interface{})
+
+	satelliteMapInterface, gotSatellite := dispatchersMap["satellite"]
+
+	if gotSatellite == false {
+		logger.Debug("No satellite dispatcher found")
+		return emptyPermittedAccounts, nil
+	}
+
+	logger.Debug("***** Found satellite map: ", satelliteMapInterface)
+
+	satelliteMap := satelliteMapInterface.(map[string]interface{})
+
+	permittedAccountsString, gotPermittedAccounts := satelliteMap["accounts"]
+
+	if gotPermittedAccounts == false {
+		logger.Debug("No permitted accounts found")
+		return emptyPermittedAccounts, nil
+	}
+
+	permittedAccountsList := strings.Split(permittedAccountsString.(string), ",")
+
+	j, err := json.Marshal(permittedAccountsList)
+	if err != nil {
+		logger.WithFields(logrus.Fields{"error": err}).Debug("Unable to parse permitted accounts list")
+		return emptyPermittedAccounts, nil
+	}
+
+	return string(j), nil
 }
