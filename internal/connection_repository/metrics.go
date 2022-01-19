@@ -6,7 +6,7 @@ import (
 )
 
 type connectionRepositoryMetrics struct {
-	sqlLookupConnectionByAccountOrPermittedAccountAndClientIDDuration prometheus.Histogram
+	sqlLookupConnectionByAccountOrPermittedTenantAndClientIDDuration prometheus.Histogram
 
 	sqlLookupConnectionByAccountAndClientIDDuration prometheus.Histogram
 	sqlLookupConnectionsByAccountDuration           prometheus.Histogram
@@ -22,7 +22,7 @@ var metrics *connectionRepositoryMetrics
 func init() {
 	metrics = new(connectionRepositoryMetrics)
 
-	metrics.sqlLookupConnectionByAccountOrPermittedAccountAndClientIDDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+	metrics.sqlLookupConnectionByAccountOrPermittedTenantAndClientIDDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name: "cloud_connector_sql_lookup_connection_by_account_or_permitted_account_and_client_id_duration",
 		Help: "The amount of time the it took to lookup a connection using (account or permitted accont) and client id ",
 	})

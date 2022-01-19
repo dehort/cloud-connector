@@ -15,30 +15,30 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type PermittedAccountConnectionLocator struct {
+type PermittedTenantConnectionLocator struct {
 	database     *sql.DB
 	proxyFactory controller.ConnectorClientProxyFactory
 }
 
-func NewPermittedAccountConnectionLocator(cfg *config.Config, database *sql.DB, proxyFactory controller.ConnectorClientProxyFactory) (*PermittedAccountConnectionLocator, error) {
+func NewPermittedTenantConnectionLocator(cfg *config.Config, database *sql.DB, proxyFactory controller.ConnectorClientProxyFactory) (*PermittedTenantConnectionLocator, error) {
 
-	return &PermittedAccountConnectionLocator{
+	return &PermittedTenantConnectionLocator{
 		database:     database,
 		proxyFactory: proxyFactory,
 	}, nil
 }
 
-func (pacl *PermittedAccountConnectionLocator) GetConnection(ctx context.Context, account domain.AccountID, client_id domain.ClientID) controller.ConnectorClient {
+func (pacl *PermittedTenantConnectionLocator) GetConnection(ctx context.Context, account domain.AccountID, client_id domain.ClientID) controller.ConnectorClient {
 	var conn controller.ConnectorClient
 	var err error
 
-	callDurationTimer := prometheus.NewTimer(metrics.sqlLookupConnectionByAccountOrPermittedAccountAndClientIDDuration)
+	callDurationTimer := prometheus.NewTimer(metrics.sqlLookupConnectionByAccountOrPermittedTenantAndClientIDDuration)
 	defer callDurationTimer.ObserveDuration()
 
 	// Match a connection if the account number matches either the primary account (account field) or
-	// if the account number is within the permitted_accounts list
-	statement, err := pacl.database.Prepare(`SELECT account, client_id, dispatchers, permitted_accounts FROM connections
-        WHERE (account = $1 OR permitted_accounts @> to_jsonb($1::text))
+	// if the account number is within the permitted_tenants list
+	statement, err := pacl.database.Prepare(`SELECT account, client_id, dispatchers, permitted_tenants FROM connections
+        WHERE (account = $1 OR permitted_tenants @> to_jsonb($1::text))
         AND client_id = $2`)
 	if err != nil {
 		logger.LogError("SQL Prepare failed", err)
@@ -49,8 +49,8 @@ func (pacl *PermittedAccountConnectionLocator) GetConnection(ctx context.Context
 	var primaryAccount string
 	var clientId string
 	var dispatchersString sql.NullString
-	var permittedAccounts sql.NullString
-	err = statement.QueryRow(account, client_id).Scan(&primaryAccount, &clientId, &dispatchersString, &permittedAccounts)
+	var ts sql.NullString
+	err = statement.QueryRow(account, client_id).Scan(&primaryAccount, &clientId, &dispatchersString, &ts)
 
 	if err != nil {
 		if err != sql.ErrNoRows {
@@ -69,9 +69,9 @@ func (pacl *PermittedAccountConnectionLocator) GetConnection(ctx context.Context
 
 	if primaryAccount != string(account) {
 		logger.Log.WithFields(logrus.Fields{"client_id": client_id,
-			"account":            account,
-			"primary_account":    primaryAccount,
-			"permitted_accounts": permittedAccounts}).Info("Connection located based on permitted account match")
+			"account":           account,
+			"primary_account":   primaryAccount,
+			"permitted_tenants": ts}).Info("Connection located based on permitted tenant match")
 	}
 
 	conn, err = pacl.proxyFactory.CreateProxy(ctx, domain.AccountID(account), domain.ClientID(client_id), dispatchers)
@@ -83,10 +83,10 @@ func (pacl *PermittedAccountConnectionLocator) GetConnection(ctx context.Context
 	return conn
 }
 
-func (pacl *PermittedAccountConnectionLocator) GetConnectionsByAccount(ctx context.Context, account domain.AccountID, offset int, limit int) (map[domain.ClientID]controller.ConnectorClient, int, error) {
+func (pacl *PermittedTenantConnectionLocator) GetConnectionsByAccount(ctx context.Context, account domain.AccountID, offset int, limit int) (map[domain.ClientID]controller.ConnectorClient, int, error) {
 	return nil, 0, errors.New("Not implemented!")
 }
 
-func (pacl *PermittedAccountConnectionLocator) GetAllConnections(ctx context.Context, offset int, limit int) (map[domain.AccountID]map[domain.ClientID]controller.ConnectorClient, int, error) {
+func (pacl *PermittedTenantConnectionLocator) GetAllConnections(ctx context.Context, offset int, limit int) (map[domain.AccountID]map[domain.ClientID]controller.ConnectorClient, int, error) {
 	return nil, 0, errors.New("Not implemented!")
 }

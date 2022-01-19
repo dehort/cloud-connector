@@ -19,8 +19,8 @@ func init() {
 	logger.InitLogger()
 }
 
-func insertTestData(database *sql.DB, account domain.AccountID, client_id domain.ClientID, permitted_accounts string) (func(), error) {
-	insert := "INSERT INTO connections (account, client_id, permitted_accounts) VALUES ($1, $2, $3)"
+func insertTestData(database *sql.DB, account domain.AccountID, client_id domain.ClientID, permitted_tenants string) (func(), error) {
+	insert := "INSERT INTO connections (account, client_id, permitted_tenants) VALUES ($1, $2, $3)"
 	delete := "DELETE FROM connections WHERE account = $1 AND client_id = $2"
 
 	noOpFunc := func() {}
@@ -31,7 +31,7 @@ func insertTestData(database *sql.DB, account domain.AccountID, client_id domain
 	}
 	defer statement.Close()
 
-	_, err = statement.Exec(account, client_id, permitted_accounts)
+	_, err = statement.Exec(account, client_id, permitted_tenants)
 	if err != nil {
 		return noOpFunc, err
 	}
@@ -65,7 +65,7 @@ func (m *mockConnectorClientProxyFactory) CreateProxy(ctx context.Context, accou
 	return nil, nil
 }
 
-func TestPermittedAccountConnectionLocator(t *testing.T) {
+func TestPermittedTenantConnectionLocator(t *testing.T) {
 
 	cfg := config.GetConfig()
 
@@ -78,13 +78,13 @@ func TestPermittedAccountConnectionLocator(t *testing.T) {
 		testName            string
 		account             domain.AccountID
 		clientID            domain.ClientID
-		permittedAccounts   string
+		permittedTenants    string
 		accountToSearchFor  domain.AccountID
 		clientIDToSearchFor domain.ClientID
 		verifyResults       func(*testing.T, mockConnectorClientProxyFactory)
 	}{
 		{"primary account match", "999999", "client-1", "[]", "999999", "client-1", verifyProxyFactoryWasCalled("999999", "client-1")},
-		{"permitted account match", "888888", "client-2", "[\"0001\", \"0002\"]", "0001", "client-2", verifyProxyFactoryWasCalled("0001", "client-2")},
+		{"permitted tenant match", "888888", "client-2", "[\"0001\", \"0002\"]", "0001", "client-2", verifyProxyFactoryWasCalled("0001", "client-2")},
 		{"no account matches", "999999", "client-3", "[]", "888888", "client-3", verifyProxyFactoryWasNotCalled()},
 		{"account matches, but client-id does not", "999999", "client-4", "[]", "999999", "will-not-find-this-client", verifyProxyFactoryWasNotCalled()},
 	}
@@ -95,12 +95,12 @@ func TestPermittedAccountConnectionLocator(t *testing.T) {
 			var mockProxyFactory = mockConnectorClientProxyFactory{}
 
 			var connectionLocator ConnectionLocator
-			connectionLocator, err := NewPermittedAccountConnectionLocator(cfg, database, &mockProxyFactory)
+			connectionLocator, err := NewPermittedTenantConnectionLocator(cfg, database, &mockProxyFactory)
 			if err != nil {
-				t.Fatal("unexpected error while creating the PermittedAccountConnectionLocator", err)
+				t.Fatal("unexpected error while creating the PermittedTenantConnectionLocator", err)
 			}
 
-			cleanUpTestData, err := insertTestData(database, tc.account, tc.clientID, tc.permittedAccounts)
+			cleanUpTestData, err := insertTestData(database, tc.account, tc.clientID, tc.permittedTenants)
 			if err != nil {
 				t.Fatal("unexpected error while inserting test data into the database", err)
 			}

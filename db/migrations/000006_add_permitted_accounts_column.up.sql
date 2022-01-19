@@ -1,4 +1,4 @@
 ALTER TABLE connections
-    ADD permitted_accounts jsonb NOT NULL DEFAULT '{}';
+    ADD permitted_tenants jsonb NOT NULL DEFAULT '{}';
 
-CREATE INDEX idx_permitted_accounts_gin ON connections USING gin (permitted_accounts);
+CREATE INDEX idx_permitted_tenants_gin ON connections USING gin (permitted_tenants);

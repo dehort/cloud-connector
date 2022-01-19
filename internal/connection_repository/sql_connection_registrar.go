@@ -36,13 +36,13 @@ func (scm *SqlConnectionRegistrar) Register(ctx context.Context, rhcClient domai
 
 	logger := logger.Log.WithFields(logrus.Fields{"account": account, "client_id": client_id})
 
-	permittedAccounts, err := retrievePermittedAccounts(logger, rhcClient)
+	permittedTenants, err := retrievePermittedTenants(logger, rhcClient)
 	if err != nil {
-		logger.WithFields(logrus.Fields{"error": err}).Error("Unable to determine permitted accounts")
+		logger.WithFields(logrus.Fields{"error": err}).Error("Unable to determine permitted tenants")
 	}
 
-	update := "UPDATE connections SET dispatchers=$1, tags = $2, updated_at = NOW(), message_id = $3, message_sent = $4, permitted_accounts = $5 WHERE account=$6 AND client_id=$7"
-	insert := "INSERT INTO connections (account, client_id, dispatchers, canonical_facts, tags, permitted_accounts, message_id, message_sent) SELECT $8, $9, $10, $11, $12, $13, $14, $15"
+	update := "UPDATE connections SET dispatchers=$1, tags = $2, updated_at = NOW(), message_id = $3, message_sent = $4, permitted_tenants = $5 WHERE account=$6 AND client_id=$7"
+	insert := "INSERT INTO connections (account, client_id, dispatchers, canonical_facts, tags, permitted_tenants, message_id, message_sent) SELECT $8, $9, $10, $11, $12, $13, $14, $15"
 	insertOrUpdate := fmt.Sprintf("WITH upsert AS (%s RETURNING *) %s WHERE NOT EXISTS (SELECT * FROM upsert)", update, insert)
 
 	statement, err := scm.database.Prepare(insertOrUpdate)
@@ -70,7 +70,7 @@ func (scm *SqlConnectionRegistrar) Register(ctx context.Context, rhcClient domai
 		return err
 	}
 
-	_, err = statement.Exec(dispatchersString, tagsString, rhcClient.MessageMetadata.LatestMessageID, rhcClient.MessageMetadata.LatestTimestamp, permittedAccounts, account, client_id, account, client_id, dispatchersString, canonicalFactsString, tagsString, permittedAccounts, rhcClient.MessageMetadata.LatestMessageID, rhcClient.MessageMetadata.LatestTimestamp)
+	_, err = statement.Exec(dispatchersString, tagsString, rhcClient.MessageMetadata.LatestMessageID, rhcClient.MessageMetadata.LatestTimestamp, permittedTenants, account, client_id, account, client_id, dispatchersString, canonicalFactsString, tagsString, permittedTenants, rhcClient.MessageMetadata.LatestMessageID, rhcClient.MessageMetadata.LatestTimestamp)
 	if err != nil {
 		logger.WithFields(logrus.Fields{"error": err}).Error("Insert/update failed")
 		return FatalError{err}
@@ -178,13 +178,13 @@ func (scm *SqlConnectionRegistrar) FindConnectionByClientID(ctx context.Context,
 	return connectorClient, nil
 }
 
-func retrievePermittedAccounts(logger *logrus.Entry, clientState domain.ConnectorClientState) (string, error) {
+func retrievePermittedTenants(logger *logrus.Entry, clientState domain.ConnectorClientState) (string, error) {
 
-	emptyPermittedAccounts := "[]"
+	emptyPermittedTenants := "[]"
 
 	if clientState.Dispatchers == nil {
-		logger.Debug("No permitted accounts found")
-		return emptyPermittedAccounts, nil
+		logger.Debug("No permitted tenants found")
+		return emptyPermittedTenants, nil
 	}
 
 	dispatchersMap := clientState.Dispatchers.(map[string]interface{})
@@ -193,26 +193,26 @@ func retrievePermittedAccounts(logger *logrus.Entry, clientState domain.Connecto
 
 	if gotSatellite == false {
 		logger.Debug("No satellite dispatcher found")
-		return emptyPermittedAccounts, nil
+		return emptyPermittedTenants, nil
 	}
 
 	logger.Debug("***** Found satellite map: ", satelliteMapInterface)
 
 	satelliteMap := satelliteMapInterface.(map[string]interface{})
 
-	permittedAccountsString, gotPermittedAccounts := satelliteMap["accounts"]
+	permittedTenantsString, gotPermittedTenants := satelliteMap["tenants"]
 
-	if gotPermittedAccounts == false {
-		logger.Debug("No permitted accounts found")
-		return emptyPermittedAccounts, nil
+	if gotPermittedTenants == false {
+		logger.Debug("No permitted tenants found")
+		return emptyPermittedTenants, nil
 	}
 
-	permittedAccountsList := strings.Split(permittedAccountsString.(string), ",")
+	permittedTenantsList := strings.Split(permittedTenantsString.(string), ",")
 
-	j, err := json.Marshal(permittedAccountsList)
+	j, err := json.Marshal(permittedTenantsList)
 	if err != nil {
-		logger.WithFields(logrus.Fields{"error": err}).Debug("Unable to parse permitted accounts list")
-		return emptyPermittedAccounts, nil
+		logger.WithFields(logrus.Fields{"error": err}).Debug("Unable to parse permitted tenants list")
+		return emptyPermittedTenants, nil
 	}
 
 	return string(j), nil

@@ -29,15 +29,15 @@ func TestSqlConnectionRegistrar(t *testing.T) {
 	}
 
 	testCases := []struct {
-		testName          string
-		account           domain.AccountID
-		clientID          domain.ClientID
-		dispatchers       string
-		permittedAccounts []string
+		testName         string
+		account          domain.AccountID
+		clientID         domain.ClientID
+		dispatchers      string
+		permittedTenants []string
 	}{
 		{"no dispatchers", "999999", "registrar-test-client-1", "{}", []string{}},
-		{"satellite dispatchers - one account", "888888", "registrar-test-client-2", "{\"satellite\": {\"accounts\": \"0002\"}}", []string{"0002"}},
-		{"satellite dispatchers - two accounts", "888888", "registrar-test-client-2", "{\"satellite\": {\"accounts\": \"0002,0001\"}}", []string{"0002", "0001"}},
+		{"satellite dispatchers - one account", "888888", "registrar-test-client-2", "{\"satellite\": {\"tenants\": \"0002\"}}", []string{"0002"}},
+		{"satellite dispatchers - two accounts", "888888", "registrar-test-client-2", "{\"satellite\": {\"tenants\": \"0002,0001\"}}", []string{"0002", "0001"}},
 	}
 
 	for _, tc := range testCases {
@@ -73,7 +73,7 @@ func TestSqlConnectionRegistrar(t *testing.T) {
 
 			verifyConnectorClientState(t, connectorClientState, actualClientState)
 
-			verifyStoredClientState(t, database, tc.account, tc.clientID, tc.permittedAccounts)
+			verifyStoredClientState(t, database, tc.account, tc.clientID, tc.permittedTenants)
 
 			err = connectionRegistrar.Unregister(context.TODO(), tc.clientID)
 			if err != nil {
@@ -96,9 +96,9 @@ func verifyConnectorClientState(t *testing.T, expectedClientState, actualClientS
 	}
 }
 
-func verifyStoredClientState(t *testing.T, database *sql.DB, account domain.AccountID, clientID domain.ClientID, permittedAccounts []string) {
+func verifyStoredClientState(t *testing.T, database *sql.DB, account domain.AccountID, clientID domain.ClientID, permittedTenants []string) {
 
-	statement, err := database.Prepare(`SELECT permitted_accounts FROM connections
+	statement, err := database.Prepare(`SELECT permitted_tenants FROM connections
     WHERE account = $1 AND
     client_id = $2`)
 	if err != nil {
@@ -107,18 +107,18 @@ func verifyStoredClientState(t *testing.T, database *sql.DB, account domain.Acco
 	}
 	defer statement.Close()
 
-	var permittedAccountsFromDatabase string
-	err = statement.QueryRow(account, clientID).Scan(&permittedAccountsFromDatabase)
+	var permittedTenantsFromDatabase string
+	err = statement.QueryRow(account, clientID).Scan(&permittedTenantsFromDatabase)
 	if err != nil {
 		t.Fatal("sql prepare failed", err)
 		return
 	}
 
 	var actualPermittedAccounts []string
-	json.Unmarshal([]byte(permittedAccountsFromDatabase), &actualPermittedAccounts)
+	json.Unmarshal([]byte(permittedTenantsFromDatabase), &actualPermittedAccounts)
 
-	if reflect.DeepEqual(actualPermittedAccounts, permittedAccounts) == false {
-		t.Fatalf("expected permitted accounts to be %s, but got %s", permittedAccounts, actualPermittedAccounts)
+	if reflect.DeepEqual(actualPermittedAccounts, permittedTenants) == false {
+		t.Fatalf("expected permitted accounts to be %s, but got %s", permittedTenants, actualPermittedAccounts)
 		return
 	}
 

@@ -171,12 +171,12 @@ func startCloudConnectorApiServer(mgmtAddr string) {
 	mgmtServer := api.NewManagementServer(sqlConnectionLocator, apiMux, cfg.UrlBasePath, cfg)
 	mgmtServer.Routes()
 
-	permittedAccountConnectionLocator, err := connection_repository.NewPermittedAccountConnectionLocator(cfg, database, proxyFactory)
+	permittedTenantConnectionLocator, err := connection_repository.NewPermittedTenantConnectionLocator(cfg, database, proxyFactory)
 	if err != nil {
 		logger.LogFatalError("Failed to create Permitted Account Connection Locator", err)
 	}
 
-	jr := api.NewMessageReceiver(permittedAccountConnectionLocator, apiMux, cfg.UrlBasePath, cfg)
+	jr := api.NewMessageReceiver(permittedTenantConnectionLocator, apiMux, cfg.UrlBasePath, cfg)
 	jr.Routes()
 
 	apiSrv := utils.StartHTTPServer(mgmtAddr, "management", apiMux)
