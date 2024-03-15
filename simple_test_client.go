@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	//"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,16 +19,6 @@ import (
 )
 
 func NewTLSConfig(certFile string, keyFile string) (*tls.Config, string) {
-	// Import trusted certificates from CAfile.pem.
-	// Alternatively, manually add CA certificates to
-	// default openssl CA bundle.
-	/*
-	   certpool := x509.NewCertPool()
-	   pemCerts, err := ioutil.ReadFile("samplecerts/CAfile.pem")
-	   if err == nil {
-	       certpool.AppendCertsFromPEM(pemCerts)
-	   }
-	*/
 
 	// Import client certificate/key pair
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
@@ -72,7 +63,6 @@ func main() {
 	*/
 	MQTT.DEBUG = logger
 
-	connectionCount := flag.Int("connection_count", 1, "number of connections to create")
 	broker := flag.String("broker", "tcp://eclipse-mosquitto:1883", "hostname / port of broker")
 	certFile := flag.String("cert", "cert.pem", "path to cert file")
 	keyFile := flag.String("key", "key.pem", "path to key file")
@@ -81,11 +71,17 @@ func main() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
-	for i := 0; i < *connectionCount; i++ {
-		go startProducer(*certFile, *keyFile, *broker, i)
-	}
+	go startTestClient(*certFile, *keyFile, *broker)
 
-	<-c
+	panicTimer := time.NewTimer(60 * time.Second)
+
+	select {
+	case <-c:
+		fmt.Println("Received signal...")
+		break
+	case <-panicTimer.C:
+		panic("I'm out!!")
+	}
 	fmt.Println("Client going down...disconnecting from mqtt uncleanly")
 }
 
@@ -93,7 +89,11 @@ var m MQTT.MessageHandler = func(client MQTT.Client, msg MQTT.Message) {
 	fmt.Printf("default handler rec TOPIC: %s MSG:%s\n", msg.Topic(), msg.Payload())
 }
 
-func startProducer(certFile string, keyFile string, broker string, i int) {
+func startTestClient(certFile string, keyFile string, broker string) {
+	startProducer(certFile, keyFile, broker)
+}
+
+func startProducer(certFile string, keyFile string, broker string) (string, MQTT.Client, error) {
 	tlsconfig, clientID := NewTLSConfig(certFile, keyFile)
 
 	controlReadTopic := fmt.Sprintf("redhat/insights/%s/control/in", clientID)
@@ -105,11 +105,12 @@ func startProducer(certFile string, keyFile string, broker string, i int) {
 	connOpts.AddBroker(broker)
 	connOpts.SetClientID(clientID)
 	connOpts.SetTLSConfig(tlsconfig)
+	connOpts.SetAutoReconnect(false)
 
 	connectionStatusMsgPayload := Connector.ConnectionStatusMessageContent{ConnectionState: "offline"}
 	lastWillMsg := Connector.ControlMessage{
 		MessageType: "connection-status",
-		MessageID:   "5678",
+		MessageID:   generateUUID(),
 		Version:     1,
 		Sent:        time.Now(),
 		Content:     connectionStatusMsgPayload,
@@ -124,14 +125,9 @@ func startProducer(certFile string, keyFile string, broker string, i int) {
 	retained := false
 	qos := byte(1)
 
-	fmt.Println("last-will - publishing to topic:", controlWriteTopic)
-	fmt.Println("last-will -  retained: ", retained)
-	fmt.Println("last-will - qos: ", qos)
-
 	connOpts.SetWill(controlWriteTopic, string(payload), qos, retained)
 
 	connOpts.SetOnConnectHandler(func(client MQTT.Client) {
-		fmt.Println("*** OnConnect - subscribing to topic:", controlReadTopic)
 		if token := client.Subscribe(controlReadTopic, 0, onMessageReceived); token.Wait() && token.Error() != nil {
 			panic(token.Error())
 		}
@@ -163,69 +159,14 @@ func startProducer(certFile string, keyFile string, broker string, i int) {
 	dispatchers := make(Connector.Dispatchers)
 	tags := make(Connector.Tags)
 
-	publishConnectionStatusMessage(client, controlWriteTopic, qos, retained, "1234", cf, dispatchers, tags, sentTime)
+	publishConnectionStatusMessage(client, controlWriteTopic, qos, retained, generateUUID(), cf, dispatchers, tags, sentTime)
 
-/*
-	go func() {
+	fmt.Printf("CONNECTED %s\n", clientID)
 
-		// Publish a message afterward to original message which has empty dispatcher and tags
-		// Make sure this message is recorded
-
-		time.Sleep(10 * time.Second)
-
-		dispatchers := make(Connector.Dispatchers)
-		dispatchers["rhc-worker-playbook"] = make(map[string]string)
-		dispatchers["rhc-worker-playbook"]["ansible-runner-version"] = "1.2.3"
-		dispatchers["package-manager"] = make(map[string]string)
-		dispatchers["echo"] = make(map[string]string)
-
-		dispatchers["catalog"] = make(map[string]string)
-		dispatchers["catalog"]["ApplicationType"] = "/insights/platform/catalog"
-		dispatchers["catalog"]["SourceRef"] = "df2bac3e-c7b4-4a8b-8226-b943b9a12eaf"
-		dispatchers["catalog"]["SrcName"] = "dehort Testing Bulk Create"
-		dispatchers["catalog"]["SrcType"] = "ansible-tower"
-		dispatchers["catalog"]["WorkerBuild"] = "2021-02-19 10:18:24"
-		dispatchers["catalog"]["WorkerSHA"] = "48d28791e3b59f7334d2671c07978113b0d40374"
-		dispatchers["catalog"]["WorkerVersion"] = "v0.1.0"
-
-		dispatchers["foreman_rh_cloud"] = make(map[string]string)
-		dispatchers["foreman_rh_cloud"]["version"] = "6.11"
-
-		tags := make(Connector.Tags)
-		tags["key1"] = "value1"
-		tags["key2"] = "value2"
-
-		msgId := "1235"
-		sentTime := time.Now()
-
-		publishConnectionStatusMessage(client, controlWriteTopic, qos, retained, msgId, cf, dispatchers, tags, sentTime)
-
-		time.Sleep(40 * time.Second)
-		dispatchers = make(Connector.Dispatchers)
-		dispatchers["IGNORE"] = make(map[string]string)
-		tags = make(Connector.Tags)
-		tags["IGNORE"] = "value1"
-
-		publishConnectionStatusMessage(client, controlWriteTopic, qos, retained, msgId, cf, dispatchers, tags, sentTime)
-	}()
-
-	go func() {
-
-		// Publish a message "before" the original message
-		// Make sure this message is IGNORED!!
-
-		time.Sleep(20 * time.Second)
-
-		dispatchers := make(Connector.Dispatchers)
-		tags := make(Connector.Tags)
-
-		publishConnectionStatusMessage(client, controlWriteTopic, qos, retained, "1233", cf, dispatchers, tags, sentTime.Add(-10*time.Second))
-	}()
-*/
+	return clientID, client, nil
 }
 
 func publishConnectionStatusMessage(client MQTT.Client, topic string, qos byte, retained bool, messageID string, cf Connector.CanonicalFacts, dispatchers Connector.Dispatchers, tags Connector.Tags, sentTime time.Time) {
-	fmt.Println("sentTime: ", sentTime)
 
 	connectionStatusPayload := Connector.ConnectionStatusMessageContent{
 		CanonicalFacts:  cf,
@@ -250,78 +191,27 @@ func publishConnectionStatusMessage(client MQTT.Client, topic string, qos byte, 
 		panic(err)
 	}
 
-	fmt.Println("** publishing to topic:", topic)
-	fmt.Println("retained: ", retained)
-	fmt.Println("qos: ", qos)
-
 	client.Publish(topic, qos, retained, payload)
 }
 
 func onMessageReceived(client MQTT.Client, message MQTT.Message) {
-	fmt.Printf("Received message on topic: %s\nMessage: %s\n", message.Topic(), message.Payload())
+	//fmt.Printf("**** Received message on topic: %s\nMessage: %s\n", message.Topic(), message.Payload())
 
-	var connMsg Connector.ControlMessage
+	var dataMsg Connector.DataMessage
 
 	if message.Payload() == nil || len(message.Payload()) == 0 {
 		fmt.Println("empty payload")
 		return
 	}
 
-	if err := json.Unmarshal(message.Payload(), &connMsg); err != nil {
+	if err := json.Unmarshal(message.Payload(), &dataMsg); err != nil {
 		fmt.Println("unmarshal of message failed, err:", err)
 		panic(err)
 	}
 
-	fmt.Println("Got a message:", connMsg)
+	//fmt.Println("Got a message:", dataMsg)
 
-	switch connMsg.MessageType {
-	case "command":
-		fmt.Println("Got a command message")
-		commandPayload := connMsg.Content.(map[string]interface{})
-
-		if commandPayload["command"] == "ping" {
-			fmt.Println("Got a ping command")
-
-			messageID, _ := uuid.NewRandom()
-
-			pongMessage := Connector.EventMessage{
-				MessageType: "event",
-				MessageID:   messageID.String(),
-				Version:     1,
-				Sent:        time.Now(),
-				Content:     "pong",
-			}
-
-			messageBytes, err := json.Marshal(pongMessage)
-			if err != nil {
-				fmt.Println("ERROR marshalling pong message: ", err)
-				return
-			}
-
-			topic := "redhat/insights/client-1/control/out"
-			fmt.Println("sending pong response on ", topic)
-			t := client.Publish(topic, byte(0), false, messageBytes)
-			go func() {
-				_ = t.Wait() // Can also use '<-t.Done()' in releases > 1.2.0
-				if t.Error() != nil {
-					fmt.Println("public error:", t.Error())
-				}
-			}()
-		}
-
-	default:
-		fmt.Println("Invalid message type!")
-	}
-}
-
-func buildDisconnectMessage(clientID string) ([]byte, error) {
-	connMsg := Connector.ControlMessage{
-		MessageType: "disconnect",
-		MessageID:   "4321",
-		Version:     1,
-	}
-
-	return json.Marshal(connMsg)
+	fmt.Printf("MESSAGE_RECEIVED %s\n", dataMsg.MessageID)
 }
 
 func generateUUID() string {
