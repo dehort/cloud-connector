@@ -11,7 +11,7 @@ func sanitizeCanonicalFacts(cf interface{}) interface{} {
 
 	for key, value := range canonicalFacts {
 		if key == "insights_id" {
-			if validUUID(value.(string)) {
+			if isValidUUID(value.(string)) {
 				sanitizedCanonicalFacts[key] = value
 			}
 		} else {
@@ -22,7 +22,7 @@ func sanitizeCanonicalFacts(cf interface{}) interface{} {
 	return sanitizedCanonicalFacts
 }
 
-func validUUID(s string) bool {
+func isValidUUID(s string) bool {
 	_, err := uuid.Parse(s)
 	return err == nil
 }

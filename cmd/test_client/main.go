@@ -150,7 +150,7 @@ func startProducer(certFile string, keyFile string, broker string, i int) {
 	sentTime := time.Now()
 
 	cf := Connector.CanonicalFacts{
-		InsightsID:            "\u0000\u0000",
+		InsightsID:            generateUUID(),
 		MachineID:             generateUUID(),
 		BiosID:                generateUUID(),
 		SubscriptionManagerID: generateUUID(),
