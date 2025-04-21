@@ -66,7 +66,7 @@ func ControlMessageHandler(ctx context.Context, kafkaWriter *kafka.Writer, topic
 
 		kafkwWriteDurationTimer.ObserveDuration()
 
-		log.Debug("MQTT message written to kafka")
+		log.Info("MQTT message written to kafka")
 
 		if err != nil {
 			log.WithFields(logrus.Fields{"error": err}).Error("Error writing MQTT message to kafka")

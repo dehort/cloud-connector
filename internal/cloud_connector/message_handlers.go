@@ -60,7 +60,7 @@ func HandleControlMessage(cfg *config.Config, mqttClient MQTT.Client, topicBuild
 
 		logger = logger.WithFields(logrus.Fields{"message_id": controlMsg.MessageID})
 
-		logger.Debug("Got a control message:", controlMsg)
+		logger.Trace("Got a control message:", controlMsg)
 
 		switch controlMsg.MessageType {
 		case "connection-status":
@@ -114,7 +114,7 @@ func handleConnectionStatusMessage(logger *logrus.Entry, client MQTT.Client, cli
 
 func handleOnlineMessage(logger *logrus.Entry, client MQTT.Client, clientID domain.ClientID, msg protocol.ControlMessage, cfg *config.Config, topicBuilder *mqtt.TopicBuilder, accountResolver controller.AccountIdResolver, connectionRegistrar connection_repository.ConnectionRegistrar, connectedClientRecorder controller.ConnectedClientRecorder, sourcesRecorder controller.SourcesRecorder) error {
 
-	logger.Debug("handling online connection-status message")
+	logger.Info("handling online connection-status message")
 
 	ctx := context.Background()
 
@@ -216,7 +216,7 @@ func processDispatchers(logger *logrus.Entry, sourcesRecorder controller.Sources
 	dispatchers, gotDispatchers := handshakePayload[dispatchersKey]
 
 	if gotDispatchers == false {
-		logger.Debug("No dispatchers found")
+		logger.Trace("No dispatchers found")
 		return
 	} else {
 		dispatchersMessage, dispatchersMarshalled := json.Marshal(dispatchers)
@@ -230,7 +230,7 @@ func processDispatchers(logger *logrus.Entry, sourcesRecorder controller.Sources
 	catalog, gotCatalog := dispatchersMap[catalogDispatcherKey]
 
 	if gotCatalog == false {
-		logger.Debug("No catalog dispatcher found")
+		logger.Trace("No catalog dispatcher found")
 		return
 	}
 
@@ -243,7 +243,7 @@ func processDispatchers(logger *logrus.Entry, sourcesRecorder controller.Sources
 
 	if gotApplicationType != true || gotSourceType != true || gotSourceRef != true || gotSourceName != true {
 		// MISSING FIELDS
-		logger.Debug("Found a catalog dispatcher, but missing some of the required fields")
+		logger.Trace("Found a catalog dispatcher, but missing some of the required fields")
 		return
 	}
 
@@ -254,7 +254,7 @@ func processDispatchers(logger *logrus.Entry, sourcesRecorder controller.Sources
 }
 
 func handleOfflineMessage(logger *logrus.Entry, client MQTT.Client, clientID domain.ClientID, msg protocol.ControlMessage, connectionRegistrar connection_repository.ConnectionRegistrar) error {
-	logger.Debug("handling offline connection-status message")
+	logger.Info("handling offline connection-status message")
 
 	err := connectionRegistrar.Unregister(context.Background(), clientID)
 	if errors.As(err, &connection_repository.FatalError{}) {
@@ -265,6 +265,6 @@ func handleOfflineMessage(logger *logrus.Entry, client MQTT.Client, clientID dom
 }
 
 func handleEventMessage(logger *logrus.Entry, client MQTT.Client, clientID domain.ClientID, msg protocol.ControlMessage) error {
-	logger.Debugf("Received an event message from client: %v\n", msg)
+	logger.Tracef("Received an event message from client: %v\n", msg)
 	return nil
 }

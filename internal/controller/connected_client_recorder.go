@@ -120,7 +120,7 @@ func BuildInventoryMessageProducer(kafkaWriter *kafka.Writer) InventoryMessagePr
 			return err
 		}
 
-		log.Debug("Inventory kafka message written")
+		log.Info("Inventory kafka message written")
 
 		metrics.inventoryKafkaWriterSuccessCounter.Inc()
 
